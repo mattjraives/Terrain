@@ -31,7 +31,7 @@ class Terrain:
     print("{0} | {1}".format(et-st,et-st0))
     #
     st = datetime.now()
-    self.build_heightmap(**kwargs)
+    self.heightmap(**kwargs)
     et = datetime.now()
     print("{0} | {1}".format(et-st,et-st0))
     #
@@ -121,122 +121,121 @@ class Terrain:
                     "points"  : points_filter,
                     "ridges"  : ridges_filter,
                     "verts"   : verts_filter}
-    
-  def build_heightmap(self,nblobs=[5,5,5],res=10000,**kwargs):
-    print ("Elevating map.....")
-    theta_arr = np.linspace(-np.pi,np.pi,res)
-    r_arr,x_arr,y_arr,mask = conic(theta_arr,**kwargs)
+   
+  def heightmap(self,l=1,e=1,f=(0,0),alpha=0,residual=-0.1,res=10000,\
+                nb=[5,8,3],thresh=[0.95,0.9,0.9],**kwargs):
+    print("Building Heightmap.....")
     self.height = np.zeros_like(self.vertices[:,0])
-    self.heightmap_conic(r_arr,x_arr,y_arr,theta_arr,mask,**kwargs)
-    self.heightmap_inner_blobs(r_arr,x_arr,y_arr,theta_arr,mask,\
-                               nb=nblobs[0],**kwargs)
-    self.heightmap_coast_blobs(r_arr,x_arr,y_arr,theta_arr,mask,\
-                               nb=nblobs[1],**kwargs)
-    self.heightmap_outer_blobs(r_arr,x_arr,y_arr,theta_arr,mask,\
-                               nb=nblobs[2],**kwargs)
-    self.normalize()
+    print("  Central Conic.....")
+    self.heightmap_add_conic(l=l,e=e,f=f,alpha=alpha,res=res,residual=residual)
+    self.normalize(shape=0.75,filt="verts")
+    print("  Coastal Blobs.....")
+    self.heightmap_coastal_blobs(nb=nb[0],thresh=thresh[0],mult=0.5)
+    print("  Inland Blobs.....")
+    self.heightmap_inland_blobs(nb=nb[1],thresh=thresh[1],mult=0.75)
+    print("  Island Blobs.....")
+    self.heightmap_island_blobs(nb=nb[2],thresh=thresh[2],mult=4)
+    #~ print("  Random Noise.....")
+    #~ for j in self.filters["verts"]:
+      #~ self.height[j] += 5e-3*(np.random.rand() - 0.5)
     self.region_height = np.zeros_like(self.points[:,0])
     for i in self.filters["points"]:
       h = 0
       r = self.regions[self.point_region[i]]
       for j in r:
         h += self.height[j]
-      h = (1.0*h)/len(r)
+      h = h/len(r)
       self.region_height[i] = h
-    
-  def heightmap_conic(self,r_arr,x_arr,y_arr,theta_arr,mask,**kwargs):
-    print ("  Base Conic.....")
-    theta_arr = np.linspace(-np.pi,np.pi,10000)
-    r_arr,x_arr,y_arr,mask = conic(theta_arr,**kwargs)
-    self.height = np.zeros_like(self.vertices[:,0])
+   
+  def heightmap_add_conic(self,l=1,e=1,f=(0,0),alpha=0,residual=-1,mult=1,\
+                          res=10000):
+    theta = np.linspace(-np.pi,np.pi,res)
+    r,x,y,mask = conic(theta,l=l,e=e,f=f,alpha=alpha,n=theta.size)
+    h = np.zeros_like(self.vertices[:,0])
     for j in self.filters["verts"]:
-      x,y = self.vertices[j]
-      h = np.min(np.sqrt((x_arr - x)**2 + (y_arr - y)**2))**0.5
-      i = np.argmin(np.sqrt((x_arr - x)**2 + (y_arr - y)**2))
-      if y < y_arr[i]:
-        h = -h
-      self.height[j] = h
-    self.normalize(**kwargs)
+      vx,vy = self.vertices[j]
+      h[j] = np.min(np.sqrt((x - vx)**2 + (y - vy)**2))
+      i = np.argmin(np.sqrt((x - vx)**2 + (y - vy)**2))
+      if e < 1:
+        if np.sqrt((vx - f[0])**2 + (vy - f[1])**2) > r[i]:
+          h[j] *= residual
+      else:
+        if vy < y[i]:
+          h[j] *= residual
+    self.height += h*mult
   
-  def heightmap_coast_blobs(self,r_arr,x_arr,y_arr,theta_arr,mask,nb=5,\
-                            **kwargs):
-    print ("  Coastal Blobs.....")
-    new_height = np.zeros_like(self.height)
+  def heightmap_inland_blobs(self,nb=5,thresh=0.8,residual=-0.05,mult=0.3):
+    blob_locs = []
+    sealevel = np.median(self.height[list(self.filters["verts"])])
     for i in range(nb):
-      j = np.random.randint(len(x_arr[mask]))
-      fx = x_arr[mask][j] + (np.random.rand()-0.5)/self.size
-      fy = y_arr[mask][j] + (np.random.rand()-0.5)/self.size
-      #~ print (fx,fy)
-      rb,xb,yb,maskb = conic(theta_arr,f=(fx,fy),e=0.5*np.random.rand(),\
-                             l=0.07*(1 + (np.random.rand() - 0.5)),\
-                             alpha=np.pi*np.random.rand())
-      for k in self.filters["verts"]:
-        x,y = self.vertices[k]
-        i = np.argmin(np.sqrt((xb - x)**2 + (yb - y)**2))
-        h = np.min(np.sqrt((xb - x)**2 + (yb - y)**2))
-        if np.min(np.sqrt((xb[i] - fx)**2 + (yb[i] - fy)**2)) < \
-          np.min(np.sqrt((x - fx)**2 + (y - fy)**2)):
-          h = 1e-5*h
-        new_height[k] += h
-      if np.max(new_height) >= 0.1:
-        new_height *= 0.1/new_height.max()
-      self.height += new_height
-    
-  def heightmap_inner_blobs(self,r_arr,x_arr,y_arr,theta_arr,mask,nb=5,\
-                            **kwargs):
-    print ("  Inland Blobs.....")
-    new_height = np.zeros_like(self.height)
+      l = 0.1*(1 + (np.random.rand() - 0.5))
+      e = 0.5*np.random.rand()
+      a = np.pi*(np.random.rand() - 0.5)
+      score = np.zeros_like(self.vertices[:,0])
+      for j in self.filters["verts"]:
+        score[j] = 0.1*self.height[j]
+        vx,vy = self.vertices[j]
+        for x,y in blob_locs:
+          score[j] += 0.5*np.sqrt((x - vx)**2 + (y - vy)**2)
+      score *= np.sign(self.height - sealevel) + 1
+      score = score[list(self.filters["verts"])] - score.min()
+      bj = np.random.choice(np.array(list(self.filters["verts"]))\
+           [score>thresh*score.max()])
+      f = self.vertices[bj] + (np.random.rand(2) - 0.5)/self.size
+      blob_locs.append(f)
+      self.heightmap_add_conic(l=l,e=e,f=f,alpha=a,residual=residual,\
+                               mult=mult)
+    self.normalize(filt="verts")
+    self.lblobs=blob_locs
+  
+  def heightmap_coastal_blobs(self,nb=5,thresh=0.8,residual=-0.01,mult=0.1):
+    blob_locs = []
+    sealevel = np.median(self.height[list(self.filters["verts"])])
     for i in range(nb):
-      m = np.median(self.height)
-      j = np.random.randint(len(self.height[self.height>m]))
-      fx = self.vertices[:,0][self.height>m][j] + \
-           (np.random.rand()-0.5)/self.size
-      fy = self.vertices[:,1][self.height>m][j] + \
-           (np.random.rand()-0.5)/self.size
-      #~ print (fx,fy)
-      rb,xb,yb,maskb = conic(theta_arr,f=(fx,fy),e=0.5*np.random.rand(),\
-                             l=0.07*(1 + (np.random.rand() - 0.5)),\
-                             alpha=np.pi*np.random.rand())
-      for k in self.filters["verts"]:
-        x,y = self.vertices[k]
-        i = np.argmin(np.sqrt((xb - x)**2 + (yb - y)**2))
-        h = np.min(np.sqrt((xb - x)**2 + (yb - y)**2))
-        if np.min(np.sqrt((xb[i] - fx)**2 + (yb[i] - fy)**2)) < \
-          np.min(np.sqrt((x - fx)**2 + (y - fy)**2)):
-          h = 1e-5*h
-        new_height[k] += h
-      if np.max(new_height) >= 0.1:
-        new_height *= 0.1/new_height.max()
-      self.height += new_height
-    
-  def heightmap_outer_blobs(self,r_arr,x_arr,y_arr,theta_arr,mask,nb=5,\
-                            **kwargs):
-    print ("  Island Blobs.....")
-    m = np.median(self.height)
-    new_height = np.zeros_like(self.height)
+      l = 0.1*(1 + (np.random.rand() - 0.5))
+      e = 0.25*np.random.rand()
+      a = np.pi*(np.random.rand() - 0.5)
+      score = np.zeros_like(self.vertices[:,0])
+      for j in self.filters["verts"]:
+        score[j] -= np.abs(self.height[j] - sealevel) 
+        vx,vy = self.vertices[j]
+        for x,y in blob_locs:
+          score[j] += 0.25*np.sqrt((x - vx)**2 + np.abs(y - vy)**2)
+      score = score[list(self.filters["verts"])] - score.min()
+      bj = np.random.choice(np.array(list(self.filters["verts"]))\
+           [score>thresh*score.max()])
+      f = self.vertices[bj] + (np.random.rand(2) - 0.5)/self.size
+      blob_locs.append(f)
+      self.heightmap_add_conic(l=l,e=e,f=f,alpha=a,residual=residual,\
+                               mult=mult)
+    self.normalize(filt="verts")
+    self.cblobs=blob_locs
+  
+  def heightmap_island_blobs(self,nb=5,thresh=0.8,residual=0.01,mult=1):
+    blob_locs = []
+    sealevel = np.median(self.height[list(self.filters["verts"])])
     for i in range(nb):
-      j = np.random.randint(len(self.height[self.height<m]))
-      fx = self.vertices[:,0][self.height<m][j] + \
-           (np.random.rand()-0.5)/self.size
-      fy = self.vertices[:,1][self.height<m][j] + \
-           (np.random.rand()-0.5)/self.size
-      #~ print (fx,fy)
-      rb,xb,yb,maskb = conic(theta_arr,f=(fx,fy),e=0.5*np.random.rand(),\
-                             l=0.1*(1 + (np.random.rand() - 0.5)),\
-                             alpha=np.pi*np.random.rand())
-      for k in self.filters["verts"]:
-        x,y = self.vertices[k]
-        i = np.argmin(np.sqrt((xb - x)**2 + (yb - y)**2))
-        h = np.min(np.sqrt((xb - x)**2 + (yb - y)**2))
-        if np.min(np.sqrt((xb[i] - fx)**2 + (yb[i] - fy)**2)) < \
-          np.min(np.sqrt((x - fx)**2 + (y - fy)**2)):
-          h = -0.01*h*h
-        new_height[k] += h
-      if np.max(new_height) >= 0.3:
-        new_height *= 0.3/new_height.max()
-      elif np.max(new_height) <= 0.1:
-        new_height *= 0.1/new_height.max()
-      self.height += new_height
+      l = 0.05*(1 + (np.random.rand() - 0.5))
+      e = 0.5*np.random.rand()
+      a = np.pi*(np.random.rand() - 0.5)
+      score = np.zeros_like(self.vertices[:,0])
+      for j in self.filters["verts"]:
+        score[j] -= 0.5*self.height[j]
+        vx,vy = self.vertices[j]
+        score[j] += vx + vy + (1 - vx) + (1 - vy)
+        score[j] += 0.25*np.abs(self.height[j] - sealevel)
+        for x,y in blob_locs:
+          score[j] += 0.125*np.sqrt((x - vx)**2 + (y - vy)**2)
+      score *= np.sign(sealevel - self.height) + 1
+      score = score[list(self.filters["verts"])] - score.min()
+      bj = np.random.choice(np.array(list(self.filters["verts"]))\
+           [score>thresh*score.max()])
+      f = self.vertices[bj] + (np.random.rand(2) - 0.5)/self.size
+      blob_locs.append(f)
+      self.heightmap_add_conic(l=l,e=e,f=f,alpha=a,residual=residual,\
+                               mult=mult)
+    self.normalize(filt="verts")
+    self.sblobs=blob_locs
     
   def heightmap_shelf(self,**kwargs):
     print ("  Continental Shelf.....")
@@ -323,21 +322,26 @@ class Terrain:
     print("Placing cities.....")
     pass
   
-  def normalize(self,shape=1,**kwargs):
-    hmax = np.max(self.height)
-    hmin = np.min(self.height)
-    self.height = (self.height - hmin)/(hmax - hmin)
-    self.height = self.height**shape
+  def normalize(self,shape=1,filt=None,**kwargs):
+    if filt:
+      filt = list(self.filters[filt])
+    else:
+      filt = True
+    hmax = np.max(self.height[filt])
+    hmin = np.min(self.height[filt])
+    self.height[filt] = (self.height[filt] - hmin)/(hmax - hmin)
+    self.height[filt] = self.height[filt]**shape
   
   def make_shoreline(self,sealevel=1,**kwargs):
     print("Drawing Shoreline.....")
-    sealevel = sealevel*np.median(self.height[self.height!=0])
+    sealevel = sealevel*np.median(self.height[list(self.filters["verts"])])
     shoreline = []
     for j in self.filters["ridges"]:
       rv = self.ridge_vertices[j]
       if np.sum(np.sign(self.height[rv]-sealevel))==0:
         shoreline.append(self.points[self.ridge_points[j]])
     self.shoreline = shoreline
+    self.sealevel = sealevel
   
   def make_rivers(self,**kwargs):
     pass

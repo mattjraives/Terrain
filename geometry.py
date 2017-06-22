@@ -7,8 +7,7 @@ from matplotlib import pyplot as plt
 eps = sys.float_info.epsilon
 #~ eps = 0
 
-def conic(theta,l=1,e=1,f=(0.5,0.5),alpha=0,n=1024,bbox=[0,1,0,1],**kwargs):
-  base = np.random.randint(n)*0
+def conic(theta,l=1,e=1,f=(0.5,0.5),alpha=0,n=1024,bbox=[0,1,0,1]):
   if e<0:
     x = np.linspace(0,1,n)
     y = np.tan(alpha)*(x-f[0]) + f[1] 
