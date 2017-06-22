@@ -25,12 +25,14 @@ alpha = 0.575*np.pi
 T = Terrain(n=4096,e=1,l=l,f=f,alpha=alpha,shape=0.9,nblobs=[10,5,5],\
             res=10000)
 #~ ax.tripcolor(T.vertices[:,0],T.vertices[:,1],T.height,cmap="terrain")
+ax.tripcolor(T.points[:,0],T.points[:,1],T.water_height,cmap="Blues")
 ax.tricontour(T.vertices[:,0],T.vertices[:,1],T.height,\
               np.linspace(T.sealevel,1,16)[1:],cmap="copper")
 ax.tricontour(T.vertices[:,0],T.vertices[:,1],T.height,\
               np.linspace(0,T.sealevel,16)[:-1],cmap="Blues")
 #~ ax.plot(T.vertices[:,0],T.vertices[:,1],"ko",markersize=2)
 ax.add_collection(mc.LineCollection(T.shoreline,color="k"))
+#~ ax.add_collection(mc.LineCollection(T.rivers,color="blue"))
 for x,y in T.cblobs:
   ax.plot(x,y,marker="x",color="k")
 for x,y in T.lblobs:

@@ -36,7 +36,7 @@ class Terrain:
     print("{0} | {1}".format(et-st,et-st0))
     #
     st = datetime.now()
-    self.erode(**kwargs)
+    self.erosion(**kwargs)
     et = datetime.now()
     print("{0} | {1}".format(et-st,et-st0))
     #
@@ -52,6 +52,11 @@ class Terrain:
     #
     st = datetime.now()
     self.make_shoreline(**kwargs)
+    et = datetime.now()
+    print("{0} | {1}".format(et-st,et-st0))
+    #
+    st = datetime.now()
+    self.make_rivers(**kwargs)
     et = datetime.now()
     print("{0} | {1}".format(et-st,et-st0))
     print("Done!")
@@ -128,7 +133,7 @@ class Terrain:
     self.height = np.zeros_like(self.vertices[:,0])
     print("  Central Conic.....")
     self.heightmap_add_conic(l=l,e=e,f=f,alpha=alpha,res=res,residual=residual)
-    self.normalize(shape=0.75,filt="verts")
+    self.normalize(filt="verts",**kwargs)
     print("  Coastal Blobs.....")
     self.heightmap_coastal_blobs(nb=nb[0],thresh=thresh[0],mult=0.5)
     print("  Inland Blobs.....")
@@ -185,7 +190,7 @@ class Terrain:
       blob_locs.append(f)
       self.heightmap_add_conic(l=l,e=e,f=f,alpha=a,residual=residual,\
                                mult=mult)
-    self.normalize(filt="verts")
+    self.normalize(filt="verts",**kwargs)
     self.lblobs=blob_locs
   
   def heightmap_coastal_blobs(self,nb=5,thresh=0.8,residual=-0.01,mult=0.1):
@@ -208,7 +213,7 @@ class Terrain:
       blob_locs.append(f)
       self.heightmap_add_conic(l=l,e=e,f=f,alpha=a,residual=residual,\
                                mult=mult)
-    self.normalize(filt="verts")
+    self.normalize(filt="verts",**kwargs)
     self.cblobs=blob_locs
   
   def heightmap_island_blobs(self,nb=5,thresh=0.8,residual=0.01,mult=1):
@@ -234,7 +239,7 @@ class Terrain:
       blob_locs.append(f)
       self.heightmap_add_conic(l=l,e=e,f=f,alpha=a,residual=residual,\
                                mult=mult)
-    self.normalize(filt="verts")
+    self.normalize(filt="verts",**kwargs)
     self.sblobs=blob_locs
     
   def heightmap_shelf(self,**kwargs):
@@ -243,17 +248,17 @@ class Terrain:
       x,y = self.vertices[k]
       self.height[k] += (1-(x-0.5)**2)*(y**3)*1e-1
     
-  def erode(self,**kwargs):
+  def erosion(self,**kwargs):
     print("Eroding terrain.....")
-    self.watersheds(**kwargs)
-    self.flow(**kwargs)
+    self.erosion_rivers(**kwargs)
+    self.erosion_flow(**kwargs)
     self.slope(**kwargs)
     for i,ridge in enumerate(self.water_ridges):
       j = self.ridge_vertices[i]
-      self.height[j] -= 0.1*self.water_flow[i]*self.slope[i]
-    self.normalize(**kwargs)
+      self.height[j] -= 1*self.water_flow[i]*self.slope[i]
+    self.normalize(filt="verts",**kwargs)
     
-  def watersheds(self,eps=0.01,**kwargs):
+  def erosion_rivers(self,eps=0.01,**kwargs):
     W = 100*np.ones_like(self.points[:,0])
     for i in self.filters["points"]:
       if self.regions_boundary[i]:
@@ -291,7 +296,7 @@ class Terrain:
           except ValueError:
             continue
   
-  def flow(self,**kwargs):
+  def erosion_flow(self,**kwargs):
     self.water_flow = np.ones_like(self.points[:,0])
     fwh = self.water_height[list(self.filters["points"])]
     srt = np.argsort(fwh)[::-1]
@@ -344,7 +349,10 @@ class Terrain:
     self.sealevel = sealevel
   
   def make_rivers(self,**kwargs):
-    pass
+    print("Drawing Rivers.....")
+    sealevel = np.median(self.region_height[list(self.filters["points"])])
+    self.rivers = [self.points[self.ridge_points[j]] for \
+                   j in self.water_ridges]
     
   def boundary_regions(self,bbox=[0,1,0,1],**kwargs):
     print("Determining Boundary Cells.....")
